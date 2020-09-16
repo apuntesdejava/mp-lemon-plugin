@@ -22,14 +22,30 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.Reader;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.Key;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.KeyRep;
+import static java.security.KeyRep.Type.PRIVATE;
+import static java.security.KeyRep.Type.PUBLIC;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.Security;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Base64;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerConfigurationException;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -45,6 +61,9 @@ import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -56,6 +75,32 @@ import org.xml.sax.SAXException;
  */
 @Mojo(name = "jwtprovider")
 public class JwtProviderMojo extends AbstractMojo {
+
+    private static final String[] PROVIDER_FILES = {
+        "CypherService", "TokenProviderResource"
+    };
+    private static Map<KeyRep.Type, String> generateKeys() throws NoSuchAlgorithmException {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        KeyPair keyPair = kpg.generateKeyPair();
+        
+        PrivateKey privateKey = keyPair.getPrivate();
+        PublicKey publicKey = keyPair.getPublic();
+        PKCS8EncodedKeySpec encoded = new PKCS8EncodedKeySpec(publicKey.getEncoded());
+        
+        byte[] privateKeyString = toByte(privateKey);
+        byte[] publicKeyString = toByte(encoded.getEncoded());
+        Map<KeyRep.Type, String> map = new EnumMap<>(KeyRep.Type.class);
+        map.put(PRIVATE, new String(privateKeyString));
+        map.put(PUBLIC, new String(publicKeyString));
+        return map;
+    }
+    static byte[] toByte(Key key) {
+        return Base64.getEncoder().encode(key.getEncoded());
+    }
+    static byte[] toByte(byte[] content) {
+        return Base64.getEncoder().encode(content);
+    }
 
     @Parameter(
             property = "realm",
@@ -92,6 +137,14 @@ public class JwtProviderMojo extends AbstractMojo {
             defaultValue = "ADMIN,USER"
     )
     private List<String> roles;
+    private String[][] dependencies = {
+        {"org.bouncycastle", "bcprov-jdk15on", "1.66"},
+        {"io.jsonwebtoken", "jjwt", "0.9.1"},
+        {"com.fasterxml.jackson.core", "jackson-annotations", "2.11.2", "provided"},
+        {"com.fasterxml.jackson.core", "jackson-core", "2.11.2", "provided"},
+        {"com.fasterxml.jackson.core", "jackson-databind", "2.11.2", "provided"},
+        {"jakarta.platform", "jakarta.jakartaee-web-api", "8.0.0", "provided"}
+    };
 
     public void setPackage(String _package) {
         if (_package != null && !_package.isEmpty()) {
@@ -101,31 +154,38 @@ public class JwtProviderMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        getLog().debug("roles:" + roles);
-        for (Object item : this.getPluginContext().entrySet()) {
-            Entry<String, Object> entry = (Entry<String, Object>) item;
-            Object value = entry.getValue();
-            getLog().debug("**" + value.getClass().toString());
-            getLog().debug("--- entry:" + entry.getKey() + "-->" + entry.getValue());
+        try {
+            Security.addProvider(new BouncyCastleProvider());
+            getLog().debug("roles:" + roles);
+            for (Object item : this.getPluginContext().entrySet()) {
+                Entry<String, Object> entry = (Entry<String, Object>) item;
+                Object value = entry.getValue();
+                getLog().debug("**" + value.getClass().toString());
+                getLog().debug("--- entry:" + entry.getKey() + "-->" + entry.getValue());
 
+            }
+            MavenProject project = (MavenProject) getPluginContext().get("project");
+            File baseDir = project.getBasedir();
+            getLog().debug("project group:" + project.getGroupId());
+            Artifact artifact = project.getArtifact();
+            getLog().debug("project artifact:" + artifact.getGroupId());
+            getLog().debug("project artifact:" + artifact.getArtifactId());
+            File file = project.getFile();
+
+            getLog().debug("file:" + file);
+            getLog().debug("baseDir:" + baseDir);
+            createClasesSecure(baseDir);
+            createJwtConfig(baseDir);
+            addDependencies(project);
+            project.setFile(file);
+        } catch (NoSuchAlgorithmException | IOException ex) {
+            getLog().error(ex.getMessage(), ex);
         }
-        MavenProject project = (MavenProject) getPluginContext().get("project");
-        File baseDir = project.getBasedir();
-        getLog().debug("project group:" + project.getGroupId());
-        Artifact artifact = project.getArtifact();
-        getLog().debug("project artifact:" + artifact.getGroupId());
-        getLog().debug("project artifact:" + artifact.getArtifactId());
-        File file = project.getFile();
-
-        getLog().debug("file:" + file);
-        getLog().debug("baseDir:" + baseDir);
-        createClasesSecure(baseDir);
-        addDependencies(project);
-        project.setFile(file);
 
     }
 
     private void createClasesSecure(File baseDir) {
+        getLog().debug("** Creating classes **");
         String[] path = _package.split("\\.");
         getLog().debug("package dir:" + _package);
         File packageDir = new File(baseDir, "src/main/java");
@@ -134,47 +194,41 @@ public class JwtProviderMojo extends AbstractMojo {
         }
         getLog().debug("path secure:" + packageDir);
         packageDir.mkdirs();
-        File cypherServiceFile = new File(packageDir, "CypherService.java");
-        BufferedReader br = null;
-        Reader reader = null;
-        PrintWriter fw = null;
-        try {
-            br = new BufferedReader(reader = new InputStreamReader(JwtProviderMojo.class.getResourceAsStream("/CypherService.txt")));
-            fw = new PrintWriter(cypherServiceFile);
-            String line;
-            while ((line = br.readLine()) != null) {
-                line = line.replace("PACKAGE", _package);
-                fw.println(line);
-            }
-            fw.flush();
-        } catch (IOException ex) {
-            getLog().error(ex);
-        } finally {
+        for (String fileName : PROVIDER_FILES) {
+            File cypherServiceFile = new File(packageDir, fileName + ".java");
+            BufferedReader br = null;
+            Reader reader = null;
+            PrintWriter fw = null;
             try {
-                if (reader != null) {
-                    reader.close();
+                br = new BufferedReader(reader = new InputStreamReader(JwtProviderMojo.class.getResourceAsStream("/" + fileName + ".txt")));
+                fw = new PrintWriter(cypherServiceFile);
+                String line;
+                while ((line = br.readLine()) != null) {
+                    line = line.replace("PACKAGE", _package);
+                    fw.println(line);
                 }
-                if (br != null) {
-                    br.close();
-                }
-                if (fw != null) {
-                    fw.close();
-                }
+                fw.flush();
             } catch (IOException ex) {
                 getLog().error(ex);
+            } finally {
+                try {
+                    if (reader != null) {
+                        reader.close();
+                    }
+                    if (br != null) {
+                        br.close();
+                    }
+                    if (fw != null) {
+                        fw.close();
+                    }
+                } catch (IOException ex) {
+                    getLog().error(ex);
+                }
             }
         }
 
     }
 
-    private String[][] dependencies = {
-        {"org.bouncycastle", "bcprov-jdk15on", "1.66"},
-        {"io.jsonwebtoken", "jjwt", "0.9.1"},
-        {"com.fasterxml.jackson.core", "jackson-annotations", "2.11.2", "provided"},
-        {"com.fasterxml.jackson.core", "jackson-core", "2.11.2", "provided"},
-        {"com.fasterxml.jackson.core", "jackson-databind", "2.11.2", "provided"},
-        {"jakarta.platform", "jakarta.jakartaee-web-api", "8.0.0", "provided"}
-    };
 
     private void addDependencies(MavenProject project) {
         try {
@@ -232,19 +286,30 @@ public class JwtProviderMojo extends AbstractMojo {
             transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
             transformer.transform(source, result);
             getLog().debug(file + " actualizado");
-        } catch (ParserConfigurationException ex) {
-            getLog().error(ex);
-        } catch (SAXException ex) {
-            getLog().error(ex);
-        } catch (IOException ex) {
-            getLog().error(ex);
-        } catch (XPathExpressionException ex) {
-            getLog().error(ex);
-        } catch (TransformerConfigurationException ex) {
-            getLog().error(ex);
-        } catch (TransformerException ex) {
+        } catch (ParserConfigurationException | SAXException | IOException | XPathExpressionException | TransformerException ex) {
             getLog().error(ex);
         }
+    }
+
+
+    private void createJwtConfig(File baseDir) throws NoSuchAlgorithmException, IOException {
+        getLog().debug("** Creating jwt-config.json **");
+        File packageDir = new File(baseDir, "src/main/resources");
+        boolean createdDirs = packageDir.mkdirs();
+        getLog().debug("resource dir created:" + createdDirs);
+        getLog().debug("resource Dir:" + packageDir);
+        File jwtConfigFile = new File(packageDir, "jwt-config.json");
+        Map<KeyRep.Type, String> keys = generateKeys();
+        JSONArray rolesJson = new JSONArray(roles);
+        JSONObject config = new JSONObject()
+                .put("issuer", this.issuer)
+                .put("token-valid", this.tokenValid)
+                .put("header-key", this.headerKey)
+                .put("public-key", keys.get(PUBLIC))
+                .put("private-key", keys.get(PRIVATE))
+                .put("roles", rolesJson);
+        Path path = FileSystems.getDefault().getPath(jwtConfigFile.getPath());
+        Files.write(path, config.toString().getBytes());
     }
 
 }
