@@ -17,6 +17,7 @@ package com.apuntesdejava.mplemon.plugin;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -44,7 +45,6 @@ import java.util.Map.Entry;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
@@ -79,15 +79,16 @@ public class JwtProviderMojo extends AbstractMojo {
     private static final String[] PROVIDER_FILES = {
         "CypherService", "TokenProviderResource"
     };
+
     private static Map<KeyRep.Type, String> generateKeys() throws NoSuchAlgorithmException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair keyPair = kpg.generateKeyPair();
-        
+
         PrivateKey privateKey = keyPair.getPrivate();
         PublicKey publicKey = keyPair.getPublic();
         PKCS8EncodedKeySpec encoded = new PKCS8EncodedKeySpec(publicKey.getEncoded());
-        
+
         byte[] privateKeyString = toByte(privateKey);
         byte[] publicKeyString = toByte(encoded.getEncoded());
         Map<KeyRep.Type, String> map = new EnumMap<>(KeyRep.Type.class);
@@ -95,9 +96,11 @@ public class JwtProviderMojo extends AbstractMojo {
         map.put(PUBLIC, new String(publicKeyString));
         return map;
     }
+
     static byte[] toByte(Key key) {
         return Base64.getEncoder().encode(key.getEncoded());
     }
+
     static byte[] toByte(byte[] content) {
         return Base64.getEncoder().encode(content);
     }
@@ -178,6 +181,7 @@ public class JwtProviderMojo extends AbstractMojo {
             createJwtConfig(baseDir);
             addDependencies(project);
             project.setFile(file);
+            createRolesAtDescriptors(baseDir);
         } catch (NoSuchAlgorithmException | IOException ex) {
             getLog().error(ex.getMessage(), ex);
         }
@@ -200,7 +204,7 @@ public class JwtProviderMojo extends AbstractMojo {
             Reader reader = null;
             PrintWriter fw = null;
             try {
-                br = new BufferedReader(reader = new InputStreamReader(JwtProviderMojo.class.getResourceAsStream("/" + fileName + ".txt")));
+                br = new BufferedReader(reader = new InputStreamReader(JwtSecuredMojo.class.getResourceAsStream("/" + fileName + ".txt")));
                 fw = new PrintWriter(cypherServiceFile);
                 String line;
                 while ((line = br.readLine()) != null) {
@@ -228,7 +232,6 @@ public class JwtProviderMojo extends AbstractMojo {
         }
 
     }
-
 
     private void addDependencies(MavenProject project) {
         try {
@@ -282,15 +285,12 @@ public class JwtProviderMojo extends AbstractMojo {
             DOMSource source = new DOMSource(xmlDocument);
             FileWriter writer = new FileWriter(file);
             StreamResult result = new StreamResult(writer);
-            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-            transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
             transformer.transform(source, result);
             getLog().debug(file + " actualizado");
         } catch (ParserConfigurationException | SAXException | IOException | XPathExpressionException | TransformerException ex) {
             getLog().error(ex);
         }
     }
-
 
     private void createJwtConfig(File baseDir) throws NoSuchAlgorithmException, IOException {
         getLog().debug("** Creating jwt-config.json **");
@@ -310,6 +310,122 @@ public class JwtProviderMojo extends AbstractMojo {
                 .put("roles", rolesJson);
         Path path = FileSystems.getDefault().getPath(jwtConfigFile.getPath());
         Files.write(path, config.toString().getBytes());
+        try ( FileOutputStream fos = new FileOutputStream(new File(baseDir.getParentFile(), "jwt-config.json"))) {
+            long bytesRead = Files.copy(path, fos);
+            getLog().debug("Bytes read:{}" + bytesRead);
+        }
+    }
+
+    private void createRolesAtDescriptors(File baseDir) {
+        getLog().debug("Creating roles at descriptors files");
+        createInWebXml(baseDir);
+        createInPayaraWebXml(baseDir);
+
+    }
+
+    private void createInPayaraWebXml(File baseDir) {
+        try {
+            boolean updated = false;
+            getLog().debug("payara-web.xml:");
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setValidating(false);
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://xml.org/sax/features/namespaces", false);
+            factory.setFeature("http://xml.org/sax/features/validation", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-dtd-grammar", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            XPath xPath = XPathFactory.newInstance().newXPath();
+            File file = new File(baseDir, "src/main/webapp/WEB-INF/payara-web.xml");
+            Document xmlDocument = builder.parse(file);
+
+            NodeList webappElementList = xmlDocument.getElementsByTagName("payara-web-app");
+            if (webappElementList.getLength() > 0) {
+                Element webAppElement = (Element) webappElementList.item(0);
+                for (String role : roles) {
+                    NodeList roleNameList = (NodeList) xPath.compile("/payara-web-app/security-role-mapping/role-name[text()='" + role + "']").evaluate(xmlDocument, XPathConstants.NODESET);
+                    if (roleNameList.getLength() > 0) {
+                        getLog().warn("Role " + role + " already exists");
+                    } else {
+                        updated = true;
+                        Element securityRoleElement = xmlDocument.createElement("security-role-mapping");
+                        Element roleNameElement = xmlDocument.createElement("role-name");
+                        roleNameElement.setTextContent(role);
+                        securityRoleElement.appendChild(roleNameElement);
+                        Element groupNameElement = xmlDocument.createElement("group-name");
+                        groupNameElement.setTextContent(role);
+                        securityRoleElement.appendChild(groupNameElement);
+                        webAppElement.appendChild(securityRoleElement);
+                    }
+                }
+                if (updated) {
+                    TransformerFactory transformerFactory = TransformerFactory.newInstance();
+                    Transformer transformer = transformerFactory.newTransformer();
+                    DOMSource source = new DOMSource(xmlDocument);
+                    FileWriter writer = new FileWriter(file);
+                    StreamResult result = new StreamResult(writer);
+                    transformer.transform(source, result);
+                }
+            } else {
+                getLog().error("payaraweb-app tag not found");
+            }
+        } catch (ParserConfigurationException | SAXException | IOException | XPathExpressionException | TransformerException ex) {
+            getLog().error(ex.getMessage(), ex);
+        }
+    }
+
+    private void createInWebXml(File baseDir) {
+        try {
+            boolean updated = false;
+            getLog().debug("web.xml:");
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            XPath xPath = XPathFactory.newInstance().newXPath();
+            File file = new File(baseDir, "src/main/webapp/WEB-INF/web.xml");
+            Document xmlDocument = builder.parse(file);
+            NodeList webappElementList = xmlDocument.getElementsByTagName("web-app");
+            if (webappElementList.getLength() > 0) {
+                Element webAppElement = (Element) webappElementList.item(0);
+
+                String expression = "/web-app/login-config/realm-name";
+                NodeList nodeList = (NodeList) xPath.compile(expression).evaluate(xmlDocument, XPathConstants.NODESET);
+                if (nodeList.getLength() > 0) {
+                    Element element = (Element) nodeList.item(0);
+                    getLog().warn("Realm already exists with value: " + element.getTextContent());
+                } else {
+                    updated = true;
+                    Element loginConfigElement = xmlDocument.createElement("login-config");
+                    Element realmNameElement = xmlDocument.createElement("realm-name");
+                    realmNameElement.setTextContent(this.realm);
+                    loginConfigElement.appendChild(realmNameElement);
+                }
+                for (String role : roles) {
+                    NodeList roleNameList = (NodeList) xPath.compile("/webapp/security-role/role-name[text()='" + role + "']").evaluate(xmlDocument, XPathConstants.NODESET);
+                    if (roleNameList.getLength() > 0) {
+                        getLog().warn("Role " + role + " already exists");
+                    } else {
+                        updated = true;
+                        Element securityRoleElement = xmlDocument.createElement("security-role");
+                        Element roleNameElement = xmlDocument.createElement("role-name");
+                        roleNameElement.setTextContent(role);
+                        securityRoleElement.appendChild(roleNameElement);
+                        webAppElement.appendChild(securityRoleElement);
+                    }
+                }
+                if (updated) {
+                    TransformerFactory transformerFactory = TransformerFactory.newInstance();
+                    Transformer transformer = transformerFactory.newTransformer();
+                    DOMSource source = new DOMSource(xmlDocument);
+                    FileWriter writer = new FileWriter(file);
+                    StreamResult result = new StreamResult(writer);
+                    transformer.transform(source, result);
+                }
+            } else {
+                getLog().error("web-app tag not found");
+            }
+        } catch (ParserConfigurationException | SAXException | IOException | XPathExpressionException | TransformerException ex) {
+            getLog().error(ex.getMessage(), ex);
+        }
     }
 
 }
