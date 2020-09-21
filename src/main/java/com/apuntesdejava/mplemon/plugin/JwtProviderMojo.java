@@ -398,6 +398,7 @@ public class JwtProviderMojo extends AbstractMojo {
                     Element realmNameElement = xmlDocument.createElement("realm-name");
                     realmNameElement.setTextContent(this.realm);
                     loginConfigElement.appendChild(realmNameElement);
+                    webAppElement.appendChild(loginConfigElement);
                 }
                 for (String role : roles) {
                     NodeList roleNameList = (NodeList) xPath.compile("/webapp/security-role/role-name[text()='" + role + "']").evaluate(xmlDocument, XPathConstants.NODESET);
