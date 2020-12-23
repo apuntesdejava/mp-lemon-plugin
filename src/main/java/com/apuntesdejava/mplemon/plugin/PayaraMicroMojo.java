@@ -15,12 +15,13 @@
  */
 package com.apuntesdejava.mplemon.plugin;
 
+import static com.apuntesdejava.mplemon.plugin.ProjectUtil.addDependencies;
 import static com.apuntesdejava.mplemon.plugin.ProjectUtil.addPlugins;
 import static com.apuntesdejava.mplemon.plugin.ProjectUtil.addProperties;
 import java.io.File;
 import java.io.IOException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.nio.file.Files;
+import java.util.Arrays;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -36,6 +37,14 @@ import org.apache.maven.project.MavenProject;
 @Mojo(name = "add-payara-micro")
 public class PayaraMicroMojo extends AbstractMojo {
 
+    private static final String[][] MYSQL_DEPENDECIES = {
+        {"mysql", "mysql-connector-java", "8.0.22"}
+    };
+    private static final String[][] PGSQL_DEPENDECIES = {
+        {"org.postgresql", "postgresql", "42.2.18"}
+    };
+    private static final String CREATE_JDBC_CONNECTION_POOL = "create-jdbc-connection-pool --maxpoolsize=4 --poolresize=1 --steadypoolsize=1 --ping=true --pooling=true --restype=javax.sql.ConnectionPoolDataSource --datasourceclassname=JDBC_DRIVER --property Password=JDBC_PASSWORD:User=JDBC_USER:Url=JDBC_URL POOL_NAME";
+
     @Parameter(defaultValue = "5.2020.7")
     private String version;
 
@@ -44,6 +53,21 @@ public class PayaraMicroMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "1.0.7")
     private String pluginVersion;
+
+    @Parameter(property = "jdbcDriver")
+    private String jdbcDriver;
+
+    @Parameter(property = "jdbcUrl")
+    private String jdbcUrl;
+
+    @Parameter(property = "jdbcUsername")
+    private String jdbcUsername;
+
+    @Parameter(property = "jdbcPassword")
+    private String jdbcPassword;
+
+    private boolean useJdbc;
+    private String createJdbcConnectionPool;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -80,6 +104,11 @@ public class PayaraMicroMojo extends AbstractMojo {
             + "</configuration>"
         }};
         addPlugins(getLog(), project, plugins);
+        this.useJdbc = jdbcDriver != null && !jdbcDriver.isEmpty();
+        getLog().debug("usar JDBC:" + useJdbc);
+        if (useJdbc) {
+            addJdbc(project);
+        }
         createScripts(baseDir);
 
     }
@@ -88,16 +117,40 @@ public class PayaraMicroMojo extends AbstractMojo {
         getLog().debug("creating scripts");
         createScriptFile(baseDir, "prebootcommandfile");
         createScriptFile(baseDir, "postbootcommandfile");
-        createScriptFile(baseDir, "postdeploycommandfile");
+        if (useJdbc) {
+            createScriptFile(baseDir, "postdeploycommandfile", createJdbcConnectionPool);
+        }
     }
 
-    private void createScriptFile(File baseDir, String scriptFileName) {
+    private void createScriptFile(File baseDir, String scriptFileName, String... contents) {
         try {
             File scriptFile = new File(baseDir, scriptFileName);
             boolean created = scriptFile.createNewFile();
             getLog().debug("File created " + created);
+            if (contents.length > 0) {
+                Files.write(scriptFile.toPath(), Arrays.asList(contents));
+            }
         } catch (IOException ex) {
             getLog().error("error creating " + scriptFileName + " file at " + baseDir + " directory", ex);
+        }
+    }
+
+    private void addJdbc(MavenProject project) {
+        switch (jdbcDriver) {
+            case "mysql":
+                jdbcDriver = "com.mysql.cj.jdbc.MysqlConnectionPoolDataSource";
+                this.createJdbcConnectionPool = CREATE_JDBC_CONNECTION_POOL
+                        .replaceAll("POOL_NAME", project.getName() + "Pool")
+                        .replaceAll("JDBC_URL", jdbcUrl)
+                        .replaceAll("JDBC_DRIVER", jdbcDriver)
+                        .replaceAll("JDBC_PASSWORD", jdbcPassword)
+                        .replaceAll("JDBC_USER", jdbcUsername);
+                addDependencies(getLog(), project, MYSQL_DEPENDECIES);
+                break;
+            case "postgresql":
+                jdbcDriver = "org.postgresql.jdbc3.Jdbc3ConnectionPool";
+                addDependencies(getLog(), project, PGSQL_DEPENDECIES);
+
         }
     }
 }
