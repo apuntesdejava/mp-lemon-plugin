@@ -15,6 +15,7 @@
  */
 package com.apuntesdejava.mplemon.plugin;
 
+import static com.apuntesdejava.mplemon.plugin.ProjectUtil.addDependencies;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -125,7 +126,7 @@ public class JwtProviderMojo extends AbstractMojo {
 
     @Parameter(
             property = "package",
-            defaultValue = "com.apuntesdejava.endpoint.secure"
+            defaultValue = "com.apuntesdejava.endpoint.encrypt"
     )
     private String _package;
 
@@ -140,7 +141,7 @@ public class JwtProviderMojo extends AbstractMojo {
             defaultValue = "ADMIN,USER"
     )
     private List<String> roles;
-    private String[][] dependencies = {
+    private final String[][] dependencies = {
         {"org.bouncycastle", "bcprov-jdk15on", "1.66"},
         {"io.jsonwebtoken", "jjwt", "0.9.1"},
         {"com.fasterxml.jackson.core", "jackson-annotations", "2.11.2", "provided"},
@@ -179,7 +180,7 @@ public class JwtProviderMojo extends AbstractMojo {
             getLog().debug("baseDir:" + baseDir);
             createClasesSecure(baseDir);
             createJwtConfig(baseDir);
-            addDependencies(project);
+            addDependencies(getLog(), project, dependencies);
             project.setFile(file);
             createRolesAtDescriptors(baseDir);
         } catch (NoSuchAlgorithmException | IOException ex) {
@@ -233,65 +234,6 @@ public class JwtProviderMojo extends AbstractMojo {
 
     }
 
-    private void addDependencies(MavenProject project) {
-        try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            XPath xPath = XPathFactory.newInstance().newXPath();
-            File file = project.getFile();
-            Document xmlDocument = builder.parse(file);
-
-            getLog().debug("buscando dependencies");
-            NodeList nodeList = (NodeList) xPath.compile("/project/dependencies").evaluate(xmlDocument, XPathConstants.NODESET);
-            Element dependenciesElement;
-            if (nodeList.getLength() == 0) {
-                dependenciesElement = xmlDocument.createElement("dependencies");
-                NodeList projectElements = xmlDocument.getElementsByTagName("project");
-                projectElements.item(0).appendChild(dependenciesElement);
-            } else {
-                dependenciesElement = (Element) nodeList.item(0);
-            }
-
-            for (String[] dep : dependencies) {
-                String expression = "/project/dependencies/dependency/artifactId[text()='" + dep[1] + "']";
-                nodeList = (NodeList) xPath.compile(expression).evaluate(xmlDocument, XPathConstants.NODESET);
-                if (nodeList.getLength() == 0) {
-                    Element dependencyElem = xmlDocument.createElement("dependency");
-                    Element groupIdElem = xmlDocument.createElement("groupId");
-                    groupIdElem.setTextContent(dep[0]);
-                    dependencyElem.appendChild(groupIdElem);
-
-                    Element artifactIdElem = xmlDocument.createElement("artifactId");
-                    artifactIdElem.setTextContent(dep[1]);
-                    dependencyElem.appendChild(artifactIdElem);
-
-                    Element versionElem = xmlDocument.createElement("version");
-                    versionElem.setTextContent(dep[2]);
-                    dependencyElem.appendChild(versionElem);
-
-                    if (dep.length > 3) {
-
-                        Element scopeElem = xmlDocument.createElement("scope");
-                        scopeElem.setTextContent(dep[3]);
-                        dependencyElem.appendChild(scopeElem);
-                    }
-                    dependenciesElement.appendChild(dependencyElem);
-                }
-            }
-
-            getLog().debug("Actualizando " + file);
-            TransformerFactory transformerFactory = TransformerFactory.newInstance();
-            Transformer transformer = transformerFactory.newTransformer();
-            DOMSource source = new DOMSource(xmlDocument);
-            FileWriter writer = new FileWriter(file);
-            StreamResult result = new StreamResult(writer);
-            transformer.transform(source, result);
-            getLog().debug(file + " actualizado");
-        } catch (ParserConfigurationException | SAXException | IOException | XPathExpressionException | TransformerException ex) {
-            getLog().error(ex);
-        }
-    }
-
     private void createJwtConfig(File baseDir) throws NoSuchAlgorithmException, IOException {
         getLog().debug("** Creating jwt-config.json **");
         File packageDir = new File(baseDir, "src/main/resources");
@@ -310,7 +252,7 @@ public class JwtProviderMojo extends AbstractMojo {
                 .put("roles", rolesJson);
         Path path = FileSystems.getDefault().getPath(jwtConfigFile.getPath());
         Files.write(path, config.toString().getBytes());
-        try ( FileOutputStream fos = new FileOutputStream(new File(baseDir.getParentFile(), "jwt-config.json"))) {
+        try (FileOutputStream fos = new FileOutputStream(new File(baseDir.getParentFile(), "jwt-config.json"))) {
             long bytesRead = Files.copy(path, fos);
             getLog().debug("Bytes read:{}" + bytesRead);
         }
