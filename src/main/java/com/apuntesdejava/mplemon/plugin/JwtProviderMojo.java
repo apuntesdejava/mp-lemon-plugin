@@ -142,12 +142,11 @@ public class JwtProviderMojo extends AbstractMojo {
     )
     private List<String> roles;
     private final String[][] dependencies = {
-        {"org.bouncycastle", "bcprov-jdk15on", "1.66"},
+        {"org.bouncycastle", "bcprov-jdk15on", "1.68"},
         {"io.jsonwebtoken", "jjwt", "0.9.1"},
-        {"com.fasterxml.jackson.core", "jackson-annotations", "2.11.2", "provided"},
-        {"com.fasterxml.jackson.core", "jackson-core", "2.11.2", "provided"},
-        {"com.fasterxml.jackson.core", "jackson-databind", "2.11.2", "provided"},
-        {"jakarta.platform", "jakarta.jakartaee-web-api", "8.0.0", "provided"}
+        {"com.fasterxml.jackson.core", "jackson-annotations", "2.12.1", "provided"},
+        {"com.fasterxml.jackson.core", "jackson-core", "2.12.1", "provided"},
+        {"com.fasterxml.jackson.core", "jackson-databind", "2.12.1", "provided"}
     };
 
     public void setPackage(String _package) {

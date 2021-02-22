@@ -51,7 +51,7 @@ import org.xml.sax.SAXException;
 public class PayaraMicroMojo extends AbstractMojo {
 
     private static final String[][] MYSQL_DEPENDECIES = {
-        {"mysql", "mysql-connector-java", "8.0.22"}
+        {"mysql", "mysql-connector-java", "8.0.23"}
     };
     private static final String[][] JDBC_PLUGIN = {
         {"org.apache.maven.plugins", "maven-dependency-plugin", "3.1.2", "<executions>"
@@ -76,7 +76,7 @@ public class PayaraMicroMojo extends AbstractMojo {
             + "                </executions>"}
     };
     private static final String[][] PGSQL_DEPENDECIES = {
-        {"org.postgresql", "postgresql", "42.2.18"}
+        {"org.postgresql", "postgresql", "42.2.19"}
     };
     private static final String CREATE_JDBC_CONNECTION_POOL = "create-jdbc-connection-pool --maxpoolsize=4 --poolresize=1 --steadypoolsize=1 --ping=true --pooling=true --restype=javax.sql.ConnectionPoolDataSource --datasourceclassname=JDBC_DRIVER --property Password=JDBC_PASSWORD:User=JDBC_USER:Url=JDBC_URL POOL_NAME";
     private static final String CREATE_JDBC_RESOURCE = "create-jdbc-resource --connectionpoolid POOL_NAME jdbc/PROJECT";
@@ -93,7 +93,7 @@ public class PayaraMicroMojo extends AbstractMojo {
             .replace("JDBC_VERSION", dependecies[0][2])}};
     }
 
-    @Parameter(defaultValue = "5.2020.7", property = "version")
+    @Parameter(defaultValue = "5.2021.1", property = "version")
     private String version;
 
     @Parameter(defaultValue = "/", property = "contextRoot")
