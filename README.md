@@ -10,5 +10,5 @@ mvn -X mp-lemon:mp-lemon-plugin:add-payara-micro
 
 ### Con JDBC
 ```
-mvn -X mp-lemon:mp-lemon-plugin:add-payara-micro -DjdbcDriver=mysql -DjdbcUrl="jdbc://localhost/sakila?serverTimezone=America/lima" -DjdbcUsername=sakila -DjdbcPassword=sakila
+mvn -X mp-lemon:mp-lemon-plugin:add-payara-micro -DjdbcDriver=mysql -DjdbcProps="Password=sakila:User=sakila:Url=jdbc\:mysql\://localhost/sakila?serverTimezone\=America/Lima:useSSL=false"
 ```

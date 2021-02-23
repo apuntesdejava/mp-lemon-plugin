@@ -78,13 +78,13 @@ public class PayaraMicroMojo extends AbstractMojo {
     private static final String[][] PGSQL_DEPENDECIES = {
         {"org.postgresql", "postgresql", "42.2.19"}
     };
-    private static final String CREATE_JDBC_CONNECTION_POOL = "create-jdbc-connection-pool --maxpoolsize=4 --poolresize=1 --steadypoolsize=1 --ping=true --pooling=true --restype=javax.sql.ConnectionPoolDataSource --datasourceclassname=JDBC_DRIVER --property Password=JDBC_PASSWORD:User=JDBC_USER:Url=JDBC_URL POOL_NAME";
+    private static final String CREATE_JDBC_CONNECTION_POOL = "create-jdbc-connection-pool --maxpoolsize=4 --poolresize=1 --steadypoolsize=1 --ping=true --pooling=true --restype=javax.sql.ConnectionPoolDataSource --datasourceclassname=JDBC_DRIVER --property JDBC_PROPS POOL_NAME";
     private static final String CREATE_JDBC_RESOURCE = "create-jdbc-resource --connectionpoolid POOL_NAME jdbc/PROJECT";
     private static final String CREATE_AUTH_REALM = "create-auth-realm --classname com.sun.enterprise.security.auth.realm.jdbc.JDBCRealm --property jaas-context=jdbcRealm:datasource-jndi=jdbc/PROJECT:user-table=USER_TABLE:user-name-column=USER_NAME_COLUMN:password-column=PASSWORD_COLUMN:group-table=GROUP_TABLE:group-name-column=GROUP_NAME_COLUMN:encoding=Hex REALM_NAME";
 
-    private static String replaceChars(String str) {
-        return str.replace(":", "\\:").replace("=", "\\=");
-    }
+//    private static String replaceChars(String str) {
+//        return str.replace(":", "\\:").replace("=", "\\=");
+//    }
 
     private static String[][] dependecies2plugin(String[][] dependecies, String[][] plugin) {
         return new String[][]{{plugin[0][0], plugin[0][1], plugin[0][2], plugin[0][3]
@@ -105,14 +105,8 @@ public class PayaraMicroMojo extends AbstractMojo {
     @Parameter(property = "jdbcDriver")
     private String jdbcDriver;
 
-    @Parameter(property = "jdbcUrl")
-    private String jdbcUrl;
-
-    @Parameter(property = "jdbcUsername")
-    private String jdbcUsername;
-
-    @Parameter(property = "jdbcPassword")
-    private String jdbcPassword;
+    @Parameter(property = "jdbcProps")
+    private String jdbcProps;
 
     @Parameter(property = "realmGroupName", defaultValue = "roleid")
     private String realmGroupName;
@@ -238,10 +232,8 @@ public class PayaraMicroMojo extends AbstractMojo {
         }
         this.createJdbcConnectionPool = CREATE_JDBC_CONNECTION_POOL
                 .replace("POOL_NAME", poolName)
-                .replace("JDBC_URL", replaceChars(jdbcUrl))
                 .replace("JDBC_DRIVER", jdbcDriver)
-                .replace("JDBC_PASSWORD", jdbcPassword)
-                .replace("JDBC_USER", jdbcUsername);
+                .replace("JDBC_PROPS", jdbcProps);
     }
 
     private String getRealm(File baseDir) {
